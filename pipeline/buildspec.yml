@@ -8,6 +8,12 @@ phases:
       - REPOSITORY_URI=730335588602.dkr.ecr.us-east-1.amazonaws.com/bia-ecr
       - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
       - IMAGE_TAG=${COMMIT_HASH:=latest}
+      # Instalando dependências necessárias
+      - npm install
+      # Recuperando credenciais do banco do Secrets Manager
+      - export DB_CREDS=$(aws secretsmanager get-secret-value --secret-id bia-rds-credentials --query SecretString --output text)
+      - export DB_USERNAME=$(echo $DB_CREDS | jq -r .username)
+      - export DB_PASSWORD=$(echo $DB_CREDS | jq -r .password)
   build:
     commands:
       - echo Build iniciado em `date`
@@ -20,6 +26,16 @@ phases:
       - echo Fazendo push da imagem para o ECR.....
       - docker push $REPOSITORY_URI:latest
       - docker push $REPOSITORY_URI:$IMAGE_TAG
+      - echo Testando conexão com o banco de dados...
+      - |
+        echo "Executando migrations..."
+        npx sequelize db:migrate
+        if [ $? -eq 0 ]; then
+          echo "✅ Migrations executadas com sucesso!"
+        else
+          echo "❌ Erro ao executar migrations"
+          exit 1
+        fi
       - echo Gerando artefato da imagem para o ECS
       - printf '[{"name":"bia","imageUri":"%s"}]' $REPOSITORY_URI:$IMAGE_TAG > imagedefinitions.json
 artifacts:
